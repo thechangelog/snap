@@ -1,0 +1,91 @@
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
+import { URL } from "url";
+
+import Fastify from "fastify";
+import puppeteer from "puppeteer";
+
+const host = "https://changelog.com";
+const tmpdir = path.join(os.tmpdir(), "share");
+
+const getImg = async (path) => {
+  const url = new URL(`${host}${path}`);
+  const file = url.pathname.split("/").join("-");
+
+  const tmpImg = await readTmpImg(file);
+
+  if (tmpImg) {
+    return tmpImg;
+  } else {
+    const img = await readUrl(url);
+    await writeTmpImg(file, img);
+    return img;
+  }
+};
+
+const readTmpImg = async (name) => {
+  const tmpImgPath = path.join(tmpdir, `${name}.jpg`);
+
+  try {
+    return await fs.readFile(tmpImgPath);
+  } catch (error) {
+    return null;
+  }
+};
+
+const writeTmpImg = async (name, img) => {
+  const tmpImgPath = path.join(tmpdir, `${name}.jpg`);
+  await fs.writeFile(tmpImgPath, img);
+
+  // remove the file in 60 seconds
+  setTimeout(async () => {
+    try {
+      await fs.rm(tmpImgPath, { force: true });
+      fastify.log.info(`Temporary file removed: ${tmpImgPath}`);
+    } catch (error) {
+      console.error(`Error removing temporary file: ${error.message}`);
+    }
+  }, 60 * 1000);
+
+  return tmpImgPath;
+};
+
+const readUrl = async (url) => {
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  const response = await page.goto(url, { waitUntil: "networkidle2" });
+
+  if (response.status() == 200) {
+    const img = await page.screenshot({ fullPage: true });
+    await browser.close();
+    return img;
+  } else {
+    throw new Error("!200 OK");
+  }
+};
+
+const fastify = Fastify({
+  logger: true,
+});
+
+fastify.get("*", async function (request, reply) {
+  try {
+    const img = await getImg(request.url);
+    return reply.type("image/jpg").send(img);
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    reply
+      .code(404)
+      .send({ message: "img not found", error: "Not Found", statusCode: 404 });
+  }
+});
+
+try {
+  await fs.rm(tmpdir, { recursive: true, force: true });
+  await fs.mkdir(tmpdir);
+  await fastify.listen({ port: 3000 });
+} catch (error) {
+  fastify.log.error(error);
+  process.exit(1);
+}

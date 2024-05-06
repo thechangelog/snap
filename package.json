@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "puppeteer": "^22.7.1"
+  }
+}
