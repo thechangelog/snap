@@ -8,6 +8,7 @@ import puppeteer from "puppeteer";
 
 const host = "https://changelog.com";
 const tmpdir = path.join(os.tmpdir(), "share");
+const cacheFor = 60 * 10000;
 
 const getImg = async (path) => {
   const url = new URL(`${host}${path}`);
@@ -38,7 +39,6 @@ const writeTmpImg = async (name, img) => {
   const tmpImgPath = path.join(tmpdir, `${name}.jpg`);
   await fs.writeFile(tmpImgPath, img);
 
-  // remove the file in 60 seconds
   setTimeout(async () => {
     try {
       await fs.rm(tmpImgPath, { force: true });
@@ -46,7 +46,7 @@ const writeTmpImg = async (name, img) => {
     } catch (error) {
       console.error(`Error removing temporary file: ${error.message}`);
     }
-  }, 60 * 1000);
+  }, cacheFor);
 
   return tmpImgPath;
 };
@@ -74,10 +74,10 @@ fastify.get("*", async function (request, reply) {
     const img = await getImg(request.url);
     return reply.type("image/jpg").send(img);
   } catch (error) {
-    console.error(`Error: ${error.message}`);
-    reply
+    fastify.log.error(error);
+    return reply
       .code(404)
-      .send({ message: "img not found", error: "Not Found", statusCode: 404 });
+      .send({ message: "Not Found", error: "Not Found", statusCode: 404 });
   }
 });
 
