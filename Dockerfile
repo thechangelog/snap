@@ -37,6 +37,10 @@ RUN apt-get update -qq && \
 # Copy built application
 COPY --from=build /app /app
 
+# Install Apple emoji
+ADD https://github.com/samuelngs/apple-emoji-linux/releases/latest/download/AppleColorEmoji.ttf /usr/share/fonts
+RUN fc-cache -f -v
+
 # Start the server by default, this can be overwritten at runtime
 EXPOSE 3000
 ENV PUPPETEER_EXECUTABLE_PATH="/usr/bin/chromium"
