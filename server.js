@@ -84,7 +84,7 @@ fastify.get("*", async function (request, reply) {
 try {
   await fs.rm(tmpdir, { recursive: true, force: true });
   await fs.mkdir(tmpdir);
-  await fastify.listen({ port: 3000 });
+  await fastify.listen({ host: "0.0.0.0", port: 3000 });
 } catch (error) {
   fastify.log.error(error);
   process.exit(1);
