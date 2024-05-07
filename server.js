@@ -52,7 +52,7 @@ const writeTmpImg = async (name, img) => {
 };
 
 const readUrl = async (url) => {
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
   const page = await browser.newPage();
   const response = await page.goto(url, { waitUntil: "networkidle2" });
 
