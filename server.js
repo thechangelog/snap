@@ -52,12 +52,16 @@ const writeTmpImg = async (name, img) => {
 };
 
 const readUrl = async (url) => {
-  const browser = await puppeteer.launch({ args: ["--no-sandbox"] });
+  const browser = await puppeteer.launch({
+    args: ["--no-sandbox", "--font-render-hinting=none"],
+  });
   const page = await browser.newPage();
   const response = await page.goto(url, { waitUntil: "networkidle2" });
 
   if (response.status() == 200) {
-    const img = await page.screenshot({ fullPage: true });
+    await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 2 });
+
+    const img = await page.screenshot({ fullPage: false });
     await browser.close();
     return img;
   } else {
