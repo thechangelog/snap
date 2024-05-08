@@ -9,6 +9,9 @@ import puppeteer from "puppeteer";
 const host = "https://changelog.com";
 const tmpdir = path.join(os.tmpdir(), "share");
 const cacheFor = 60 * 10000;
+const browser = await puppeteer.launch({
+  args: ["--no-sandbox", "--font-render-hinting=none"],
+});
 
 const getImg = async (path) => {
   const url = new URL(`${host}${path}`);
@@ -52,9 +55,6 @@ const writeTmpImg = async (name, img) => {
 };
 
 const readUrl = async (url) => {
-  const browser = await puppeteer.launch({
-    args: ["--no-sandbox", "--font-render-hinting=none"],
-  });
   const page = await browser.newPage();
   const response = await page.goto(url, { waitUntil: "networkidle2" });
 
@@ -62,7 +62,7 @@ const readUrl = async (url) => {
     await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 2 });
 
     const img = await page.screenshot({ fullPage: false });
-    await browser.close();
+    await page.close();
     return img;
   } else {
     throw new Error("!200 OK");
