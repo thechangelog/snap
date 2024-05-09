@@ -17,7 +17,7 @@ const browser = await puppeteer.launch({
   args: ["--no-sandbox", "--font-render-hinting=none"],
 });
 
-async function imgOnS3(key) {
+async function isImgStored(key) {
   try {
     const command = new HeadObjectCommand({
       Bucket: process.env.BUCKET_NAME,
@@ -34,7 +34,7 @@ async function imgOnS3(key) {
   }
 }
 
-function s3Url(key) {
+function storageUrl(key) {
   const parts = [process.env.AWS_ENDPOINT_URL_S3, process.env.BUCKET_NAME, key];
   return parts.join("/");
 }
@@ -83,9 +83,9 @@ fastify.get("*", async function (request, reply) {
     const path = request.url;
     const file = path.replace("/", "").replace(/\//g, "-");
 
-    if (await imgOnS3(file)) {
+    if (await isImgStored(file)) {
       console.log("it's on S3!");
-      return reply.redirect(302, s3Url(file));
+      return reply.redirect(302, storageUrl(file));
     } else {
       const img = await readUrl(`https://changelog.com${path}`);
       await uploadImg(file, img);
