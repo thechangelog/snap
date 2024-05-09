@@ -1,65 +1,66 @@
-import { promises as fs } from "fs";
-import os from "os";
-import path from "path";
 import { URL } from "url";
 
+import {
+  S3Client,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import Fastify from "fastify";
 import puppeteer from "puppeteer";
 
-const host = "https://changelog.com";
-const tmpdir = path.join(os.tmpdir(), "share");
-const cacheFor = 60 * 10000;
+const S3 = new S3Client({
+  region: process.env.AWS_REGION,
+  endpoint: process.env.AWS_ENDPOINT_URL_S3,
+});
+
 const browser = await puppeteer.launch({
   args: ["--no-sandbox", "--font-render-hinting=none"],
 });
 
-const getImg = async (path) => {
-  const url = new URL(`${host}${path}`);
-  const file = url.pathname.split("/").join("-");
-
-  const tmpImg = await readTmpImg(file);
-
-  if (tmpImg) {
-    return tmpImg;
-  } else {
-    const img = await readUrl(url);
-    await writeTmpImg(file, img);
-    return img;
-  }
-};
-
-const readTmpImg = async (name) => {
-  const tmpImgPath = path.join(tmpdir, `${name}.jpg`);
-
+async function imgOnS3(key) {
   try {
-    return await fs.readFile(tmpImgPath);
-  } catch (error) {
-    return null;
-  }
-};
-
-const writeTmpImg = async (name, img) => {
-  const tmpImgPath = path.join(tmpdir, `${name}.jpg`);
-  await fs.writeFile(tmpImgPath, img);
-
-  setTimeout(async () => {
-    try {
-      await fs.rm(tmpImgPath, { force: true });
-      fastify.log.info(`Temporary file removed: ${tmpImgPath}`);
-    } catch (error) {
-      console.error(`Error removing temporary file: ${error.message}`);
+    const command = new HeadObjectCommand({
+      Bucket: process.env.BUCKET_NAME,
+      Key: key,
+    });
+    await S3.send(command);
+    return true;
+  } catch (err) {
+    if (err.name === "NotFound") {
+      return false;
+    } else {
+      throw err;
     }
-  }, cacheFor);
+  }
+}
 
-  return tmpImgPath;
-};
+function s3Url(key) {
+  const parts = [process.env.AWS_ENDPOINT_URL_S3, process.env.BUCKET_NAME, key];
+  return parts.join("/");
+}
+
+async function uploadImg(key, data) {
+  try {
+    const command = new PutObjectCommand({
+      Bucket: process.env.BUCKET_NAME,
+      Key: key,
+      Body: data,
+      ContentType: "image/jpeg",
+    });
+
+    await S3.send(command);
+  } catch (err) {
+    console.error("Error uploading image", err);
+    throw err;
+  }
+}
 
 const readUrl = async (url) => {
   const page = await browser.newPage();
   const response = await page.goto(url, { waitUntil: "networkidle2" });
 
   if (response.status() == 200) {
-    await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 2 });
+    await page.setViewport({ width: 1200, height: 630 });
 
     const img = await page.screenshot({ fullPage: false });
     await page.close();
@@ -73,10 +74,23 @@ const fastify = Fastify({
   logger: true,
 });
 
+fastify.get("/", async function (_request, reply) {
+  reply.redirect("https://changelog.com");
+});
+
 fastify.get("*", async function (request, reply) {
   try {
-    const img = await getImg(request.url);
-    return reply.type("image/jpg").send(img);
+    const path = request.url;
+    const file = path.replace("/", "").replace(/\//g, "-");
+
+    if (await imgOnS3(file)) {
+      console.log("it's on S3!");
+      return reply.redirect(302, s3Url(file));
+    } else {
+      const img = await readUrl(`https://changelog.com${path}`);
+      await uploadImg(file, img);
+      return reply.type("image/jpg").send(img);
+    }
   } catch (error) {
     fastify.log.error(error);
     return reply
@@ -86,8 +100,6 @@ fastify.get("*", async function (request, reply) {
 });
 
 try {
-  await fs.rm(tmpdir, { recursive: true, force: true });
-  await fs.mkdir(tmpdir);
   await fastify.listen({ host: "0.0.0.0", port: 3000 });
 } catch (error) {
   fastify.log.error(error);

@@ -1,6 +1,7 @@
 {
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.572.0",
     "fastify": "^4.26.2",
     "puppeteer": "^22.7.1"
   },
