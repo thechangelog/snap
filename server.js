@@ -1,45 +1,34 @@
-import { URL } from "url";
-
+import Fastify from "fastify";
+import puppeteer from "puppeteer";
 import {
   S3Client,
   HeadObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
-import Fastify from "fastify";
-import puppeteer from "puppeteer";
 
-const S3 = new S3Client({
-  region: process.env.AWS_REGION,
-  endpoint: process.env.AWS_ENDPOINT_URL_S3,
-});
-
-const browser = await puppeteer.launch({
+const HOST = "https://changelog.com";
+const FASTIFY = Fastify({ logger: true });
+const S3 = new S3Client();
+const CHROME = await puppeteer.launch({
   args: ["--no-sandbox", "--font-render-hinting=none"],
 });
 
-async function isImgStored(key) {
-  try {
-    const command = new HeadObjectCommand({
-      Bucket: process.env.BUCKET_NAME,
-      Key: key,
-    });
-    await S3.send(command);
-    return true;
-  } catch (err) {
-    if (err.name === "NotFound") {
-      return false;
-    } else {
-      throw err;
-    }
+async function getSnap(url) {
+  const page = await CHROME.newPage();
+  const response = await page.goto(url, { waitUntil: "networkidle2" });
+
+  if (response.status() == 200) {
+    await page.setViewport({ width: 1200, height: 630 });
+
+    const snap = await page.screenshot({ fullPage: false });
+    await page.close();
+    return snap;
+  } else {
+    throw new Error(`!200 OK: ${response.status()}`);
   }
 }
 
-function storageUrl(key) {
-  const parts = [process.env.AWS_ENDPOINT_URL_S3, process.env.BUCKET_NAME, key];
-  return parts.join("/");
-}
-
-async function uploadImg(key, data) {
+async function storeSnap(key, data) {
   try {
     const command = new PutObjectCommand({
       Bucket: process.env.BUCKET_NAME,
@@ -49,59 +38,62 @@ async function uploadImg(key, data) {
     });
 
     await S3.send(command);
-  } catch (err) {
-    console.error("Error uploading image", err);
-    throw err;
+  } catch (error) {
+    console.error("Error uploading image", error);
+    throw error;
   }
 }
 
-const readUrl = async (url) => {
-  const page = await browser.newPage();
-  const response = await page.goto(url, { waitUntil: "networkidle2" });
-
-  if (response.status() == 200) {
-    await page.setViewport({ width: 1200, height: 630 });
-
-    const img = await page.screenshot({ fullPage: false });
-    await page.close();
-    return img;
-  } else {
-    throw new Error("!200 OK");
+async function isSnapStored(key) {
+  try {
+    const command = new HeadObjectCommand({
+      Bucket: process.env.BUCKET_NAME,
+      Key: key,
+    });
+    await S3.send(command);
+    return true;
+  } catch (error) {
+    if (error.name === "NotFound") {
+      return false;
+    } else {
+      throw error;
+    }
   }
-};
+}
 
-const fastify = Fastify({
-  logger: true,
+FASTIFY.get("/", async function (_request, reply) {
+  reply.redirect(HOST);
 });
 
-fastify.get("/", async function (_request, reply) {
-  reply.redirect("https://changelog.com");
-});
-
-fastify.get("*", async function (request, reply) {
+FASTIFY.get("*", async function (request, reply) {
   try {
     const path = request.url;
     const file = path.replace("/", "").replace(/\//g, "-");
 
-    if (await isImgStored(file)) {
-      console.log("it's on S3!");
-      return reply.redirect(302, storageUrl(file));
+    if (await isSnapStored(file)) {
+      const url = [
+        process.env.AWS_ENDPOINT_URL_S3,
+        process.env.BUCKET_NAME,
+        file,
+      ].join("/");
+
+      return reply.redirect(302, url);
     } else {
-      const img = await readUrl(`https://changelog.com${path}`);
-      await uploadImg(file, img);
-      return reply.type("image/jpg").send(img);
+      const snap = await getSnap(`${HOST}${path}`);
+      await storeSnap(file, snap);
+
+      return reply.type("image/jpg").send(snap);
     }
   } catch (error) {
-    fastify.log.error(error);
-    return reply
-      .code(404)
-      .send({ message: "Not Found", error: "Not Found", statusCode: 404 });
+    FASTIFY.log.error(error);
+
+    return reply.code(404).send({ message: "Not Found", statusCode: 404 });
   }
 });
 
 try {
-  await fastify.listen({ host: "0.0.0.0", port: 3000 });
+  await FASTIFY.listen({ host: "0.0.0.0", port: 3000 });
 } catch (error) {
-  fastify.log.error(error);
+  FASTIFY.log.error(error);
   process.exit(1);
 }
