@@ -4,6 +4,7 @@ import {
   S3Client,
   HeadObjectCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
 const HOST = "https://changelog.com";
@@ -44,6 +45,20 @@ async function storeSnap(key, data) {
   }
 }
 
+async function deleteSnap(key) {
+  try {
+    const command = new DeleteObjectCommand({
+      Bucket: process.env.BUCKET_NAME,
+      Key: key,
+    });
+
+    await S3.send(command);
+  } catch (error) {
+    console.error("Error deleting image", error);
+    throw error;
+  }
+}
+
 async function isSnapStored(key) {
   try {
     const command = new HeadObjectCommand({
@@ -61,6 +76,22 @@ async function isSnapStored(key) {
   }
 }
 
+function fileFromPath(path) {
+  return path.replace("/", "").replace(/\//g, "-");
+}
+
+function badRequest(reply) {
+  return reply.code(400).send({ message: "Bad Request", statusCode: 400 });
+}
+
+function ok(reply) {
+  return reply.code(200).send({ message: "OK", statusCode: 200 });
+}
+
+function notFound(reply) {
+  return reply.code(404).send({ message: "Not Found", statusCode: 404 });
+}
+
 FASTIFY.get("/", async function (_request, reply) {
   reply.redirect(HOST);
 });
@@ -68,7 +99,7 @@ FASTIFY.get("/", async function (_request, reply) {
 FASTIFY.get("*", async function (request, reply) {
   try {
     const path = request.url;
-    const file = path.replace("/", "").replace(/\//g, "-");
+    const file = fileFromPath(path);
 
     if (await isSnapStored(file)) {
       const url = [
@@ -87,7 +118,27 @@ FASTIFY.get("*", async function (request, reply) {
   } catch (error) {
     FASTIFY.log.error(error);
 
-    return reply.code(404).send({ message: "Not Found", statusCode: 404 });
+    return notFound(reply);
+  }
+});
+
+FASTIFY.delete("/", async function (request, reply) {
+  return ok(reply);
+});
+
+FASTIFY.delete("*", async function (request, reply) {
+  const path = request.url;
+  const file = fileFromPath(path);
+  const token = request.headers["x-snap-token"] || "NO_TOKEN";
+
+  if (token == process.env.AUTH_TOKEN) {
+    if (await isSnapStored(file)) {
+      await deleteSnap(file);
+    }
+
+    return ok(reply);
+  } else {
+    return badRequest(reply);
   }
 });
 
