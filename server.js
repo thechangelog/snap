@@ -15,17 +15,23 @@ const CHROME = await puppeteer.launch({
 });
 
 async function getSnap(url) {
-  const page = await CHROME.newPage();
-  const response = await page.goto(url, { waitUntil: "networkidle2" });
-
-  if (response.status() == 200) {
+  let page = null;
+  
+  try {
+    page = await CHROME.newPage();
+    await page.setCacheEnabled(false);
     await page.setViewport({ width: 1200, height: 630 });
+    const response = await page.goto(url, { waitUntil: "networkidle2" });
 
-    const snap = await page.screenshot({ fullPage: false });
-    await page.close();
-    return snap;
-  } else {
-    throw new Error(`!200 OK: ${response.status()}`);
+    if (response.status() != 200) {
+      throw new Error(`!200 OK: ${response.status()}`);
+    } 
+
+    return await page.screenshot({ fullPage: false });
+  } finally {
+    if (page) {
+      await page.close();
+    }
   }
 }
 
